@@ -23,15 +23,22 @@ user_topics = {}
 @dp.message(F.chat.type == "private")
 async def handle_private_message(message: Message):
     user_id = message.from_user.id
-    user_name = message.from_user.full_name
 
     # Если для этого пользователя еще не создана тема в группе, создаем её
     if user_id not in user_topics:
         try:
-            # Название темы будет состоять из имени пользователя и его ID (ограничение до 128 символов)
-            topic_name = f"{user_name} ({user_id})"[:128]
+            # Принудительно запрашиваем актуальную информацию о пользователе у Telegram,
+            # чтобы точно получить его @username, если он есть
+            chat_info = await bot.get_chat(user_id)
             
-            # Создаем тему (forum topic) в супергруппе
+            if chat_info.username:
+                display_name = f"@{chat_info.username}"
+            else:
+                # Если юзернейма нет, берем имя или то, что указано в профиле
+                display_name = chat_info.first_name or message.from_user.full_name
+
+            topic_name = f"{display_name} (ID: {user_id})"[:128]
+            
             forum_topic = await bot.create_forum_topic(
                 chat_id=SUPER_GROUP_ID,
                 name=topic_name
@@ -40,6 +47,18 @@ async def handle_private_message(message: Message):
         except Exception as e:
             logging.error(f"Не удалось создать тему: {e}")
             return
+
+    # Пересылаем сообщение пользователя в созданную для него тему
+    thread_id = user_topics[user_id]
+    try:
+        await bot.copy_message(
+            chat_id=SUPER_GROUP_ID,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id,
+            message_thread_id=thread_id
+        )
+    except Exception as e:
+        logging.error(f"Не удалось переслать сообщение: {e}")
 
     # Пересылаем сообщение пользователя в созданную для него тему
     thread_id = user_topics[user_id]
