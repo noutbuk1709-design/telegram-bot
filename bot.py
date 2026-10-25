@@ -7,8 +7,8 @@ from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_applicati
 from aiohttp import web
 
 # --- НАСТРОЙКИ ---
-TOKEN = "YOUR_BOT_TOKEN"          # Ваш токен от @BotFather
-SUPER_GROUP_ID = -1001234567890   # ID вашей супергруппы (с минусом)
+TOKEN = "8699496909:AAEjPvJXJH7pIh6nowws9Yq08y9tVrZQbt8"          # Ваш токен от @BotFather
+SUPER_GROUP_ID = -1004418652781   # ID вашей супергруппы (с минусом)
 
 # Настройки вебхука для Render
 # Render автоматически передает порт в переменной PORT, а ваш домен доступен через RENDER_EXTERNAL_URL
