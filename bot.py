@@ -1,81 +1,84 @@
+import os
 import logging
-from aiogram import Bot, Dispatcher, F, types
-from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import Message
+from aiohttp import web
+from aiogram.webhook.aiohttp import SimpleRequestHandler, setup_application
 
-# Токен вашего бота из BotFather
+# Вставьте сюда ваш токен от @BotFather
 TOKEN = "8699496909:AAEjPvJXJH7pIh6nowws9Yq08y9tVrZQbt8"
-# ID вашей супергруппы (обычно начинается с минус один, например: -1001234567890)
-GROUP_ID = -1004418652781
+# Вставьте сюда ID вашей супергруппы (обычно начинается с минуса)
+SUPER_GROUP_ID = -1004418652781
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=TOKEN)
-dp = Dispatcher(storage=MemoryStorage())
+dp = Dispatcher()
 
-# Словарь для хранения связки: user_id <-> message_thread_id (тема в группе)
-# В реальном проекте лучше сохранять это в базу данных (SQLite/PostgreSQL)
+# Словарь для хранения связей: ID пользователя в ЛС -> ID темы (форума) в группе
 user_topics = {}
 
-
-# 1. Обработка сообщений от пользователей из ЛС в группу
+# Хэндлер для личных сообщений от пользователей
 @dp.message(F.chat.type == "private")
-async def handle_user_message(message: types.Message):
-  user_id = message.from_user.id
-  user_name = (
-      f"{message.from_user.first_name} | @{message.from_user.username}"
-      if message.from_user.username
-      else message.from_user.first_name
-  )
+async def handle_private_message(message: Message):
+    user_id = message.from_user.id
+    user_name = message.from_user.full_name
 
-  # Если для пользователя еще нет темы, создаем её в группе
-  if user_id not in user_topics:
+    # Если для этого пользователя еще не создана тема в группе, создаем её
+    if user_id not in user_topics:
+        try:
+            # Название темы будет состоять из имени пользователя и его ID (ограничение до 128 символов)
+            topic_name = f"{user_name} ({user_id})"[:128]
+            
+            # Создаем тему (forum topic) в супергруппе
+            forum_topic = await bot.create_forum_topic(
+                chat_id=SUPER_GROUP_ID,
+                name=topic_name
+            )
+            user_topics[user_id] = forum_topic.message_thread_id
+        except Exception as e:
+            logging.error(f"Не удалось создать тему: {e}")
+            return
+
+    # Пересылаем сообщение пользователя в созданную для него тему
+    thread_id = user_topics[user_id]
     try:
-      # Создаем топик в супергруппе
-      topic = await bot.create_forum_topic(
-          chat_id=GROUP_ID, name=user_name[:128]
-      )    # Лимит названия темы 128 символов
-      user_topics[user_id] = topic.message_thread_id
+        await bot.copy_message(
+            chat_id=SUPER_GROUP_ID,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id,
+            message_thread_id=thread_id
+        )
     except Exception as e:
-      logging.error(f"Не удалось создать тему: {e}")
-      return
+        logging.error(f"Не удалось переслать сообщение: {e}")
 
-  thread_id = user_topics[user_id]
+# Настройки для Webhook (Render)
+WEBHOOK_PATH = f"/webhook/{TOKEN}"
+WEBHOOK_HOST = os.getenv("RENDER_EXTERNAL_URL", "")
+WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+PORT = int(os.getenv("PORT", 8080))
 
-  # Пересылаем сообщение пользователя в соответствующую тему группы
-  await bot.copy_message(
-      chat_id=GROUP_ID,
-      from_chat_id=message.chat.id,
-      message_id=message.message_id,
-      message_thread_id=thread_id,
-  )
+async def on_startup(bot: Bot) -> None:
+    # Устанавливаем вебхук при старте приложения
+    await bot.set_webhook(WEBHOOK_URL)
 
+def main():
+    app = web.Application()
 
-# 2. Обработка ответов администратора из темы группы обратно пользователю
-@dp.message(F.chat.id == GROUP_ID)
-async def handle_admin_reply(message: types.Message):
-  # Проверяем, что сообщение написано внутри какой-то темы и это не служебное сообщение
-  if not message.message_thread_id:
-    return
+    # Настраиваем обработчик запросов для вебхука
+    webhook_requests_handler = SimpleRequestHandler(
+        dispatcher=dp,
+        bot=bot,
+    )
+    webhook_requests_handler.register(app, path=WEBHOOK_PATH)
+    setup_application(app, dp, bot=bot)
 
-  # Ищем, какому пользователю принадлежит эта тема
-  target_user_id = None
-  for u_id, t_id in user_topics.items():
-    if t_id == message.message_thread_id:
-      target_user_id = u_id
-      break
+    # Регистрируем функцию запуска
+    dp.startup.register(on_startup)
 
-  if target_user_id and not message.from_user.is_bot:
-    try:
-      # Отправляем ответ админа в ЛС пользователю
-      await bot.copy_message(
-          chat_id=target_user_id,
-          from_chat_id=message.chat.id,
-          message_id=message.message_id,
-      )
-    except Exception as e:
-      logging.error(f"Не удалось отправить сообщение пользователю: {e}")
-
+    # Запускаем веб-сервер
+    web.run_app(app, host="0.0.0.0", port=PORT)
 
 if __name__ == "__main__":
-  import asyncio
-
-  logging.basicConfig(level=logging.INFO)
-  asyncio.run(dp.start_polling(bot))
+    main()
