@@ -3,7 +3,7 @@ import logging
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message
 from aiohttp import web
-from aiogram.webhook.aiohttp import SimpleRequestHandler, setup_application
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
 # Вставьте сюда ваш токен от @BotFather
 TOKEN = "8699496909:AAEjPvJXJH7pIh6nowws9Yq08y9tVrZQbt8"
